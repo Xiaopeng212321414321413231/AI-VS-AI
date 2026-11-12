@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="文心一言">
+  <defs>
+    <linearGradient id="yiyan-bg" x1="4" y1="2" x2="60" y2="62" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3D6BFF"/>
+      <stop offset="0.55" stop-color="#5577F8"/>
+      <stop offset="1" stop-color="#8A5CF6"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#yiyan-bg)"/>
+  <path d="M28 12.5c.9 7.9 3.7 10.7 11.6 11.6-7.9.9-10.7 3.7-11.6 11.6-.9-7.9-3.7-10.7-11.6-11.6 7.9-.9 10.7-3.7 11.6-11.6z" fill="#ffffff"/>
+  <path d="M41.5 34c.62 5.4 2.5 7.3 7.9 7.9-5.4.62-7.28 2.5-7.9 7.9-.62-5.4-2.5-7.28-7.9-7.9 5.4-.62 7.28-2.5 7.9-7.9z" fill="#ffffff" opacity="0.95"/>
+  <path d="M24.5 40.5c.45 3.9 1.8 5.25 5.7 5.7-3.9.45-5.25 1.8-5.7 5.7-.45-3.9-1.8-5.25-5.7-5.7 3.9-.45 5.25-1.8 5.7-5.7z" fill="#ffffff" opacity="0.9"/>
+</svg>

@@ -1,0 +1,194 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+  PROVIDERS,
+  getProviderById,
+  getProviderByIdWithSettings,
+  getEnabledProviders,
+  getProviderIcon,
+} from '../modules/providers.js';
+
+describe('providers module', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('PROVIDERS constant', () => {
+    it('should contain all expected providers', () => {
+      expect(PROVIDERS).toHaveLength(16);
+      const providerIds = PROVIDERS.map((p) => p.id);
+      expect(providerIds).toEqual([
+        'chatgpt',
+        'claude',
+        'gemini',
+        'grok',
+        'deepseek',
+        'kimi',
+        'google',
+        'doubao',
+        'qwen-cn',
+        'qwen-global',
+        'chatglm',
+        'zai-global',
+        'yuanbao',
+        'minimax-agent',
+        'hailuo-cn',
+        'hailuo-global',
+      ]);
+    });
+
+    it('defines providers requiring device-local site access as optional', () => {
+      expect(getProviderById('qwen-cn')).toMatchObject({
+        name: 'Qwen (China)',
+        url: 'https://www.qianwen.com/',
+        optionalOrigins: ['https://www.qianwen.com/*'],
+      });
+      expect(getProviderById('qwen-global')).toMatchObject({
+        name: 'Qwen (Global)',
+        url: 'https://chat.qwen.ai/',
+        optionalOrigins: ['https://chat.qwen.ai/*', 'https://auth.qwen.ai/*'],
+      });
+      expect(getProviderById('chatglm')).toMatchObject({
+        name: 'Zhipu (China)',
+        url: 'https://chatglm.cn/',
+        icon: '/icons/providers/zhipu.svg',
+        iconDark: '/icons/providers/dark/zhipu.svg',
+        optionalOrigins: ['https://chatglm.cn/*'],
+      });
+      expect(getProviderById('zai-global')).toMatchObject({
+        name: 'Z.ai (Global)',
+        url: 'https://chat.z.ai/',
+        icon: '/icons/providers/zhipu.svg',
+        iconDark: '/icons/providers/dark/zhipu.svg',
+        optionalOrigins: ['https://chat.z.ai/*'],
+      });
+      expect(getProviderById('yuanbao')).toMatchObject({
+        name: 'Yuanbao',
+        url: 'https://yuanbao.tencent.com/chat/naQivTmsDa',
+        icon: '/icons/providers/yuanbao.png',
+        optionalOrigins: ['https://yuanbao.tencent.com/*'],
+      });
+      expect(getProviderById('minimax-agent')).toMatchObject({
+        name: 'MiniMax Agent',
+        url: 'https://agent.minimax.io/',
+        icon: '/icons/providers/minimax.png',
+        optionalOrigins: [
+          'https://agent.minimax.io/*',
+          'https://agent.minimax.cn/*',
+          'https://agent.minimaxi.com/*',
+        ],
+      });
+      expect(getProviderById('hailuo-cn')).toMatchObject({
+        name: 'Hailuo AI (China)',
+        url: 'https://hailuoai.com/',
+        icon: '/icons/providers/hailuo.png',
+        optionalOrigins: ['https://hailuoai.com/*', 'https://www.hailuoai.com/*'],
+      });
+      expect(getProviderById('hailuo-global')).toMatchObject({
+        name: 'Hailuo AI (Global)',
+        url: 'https://hailuoai.video/',
+        icon: '/icons/providers/hailuo.png',
+        optionalOrigins: ['https://hailuoai.video/*', 'https://www.hailuoai.video/*'],
+      });
+    });
+
+    it('should have required properties for each provider', () => {
+      PROVIDERS.forEach((provider) => {
+        expect(provider).toHaveProperty('id');
+        expect(provider).toHaveProperty('name');
+        expect(provider).toHaveProperty('url');
+        expect(provider).toHaveProperty('topLevelUrl');
+        expect(provider).toHaveProperty('icon');
+        expect(provider).toHaveProperty('iconDark');
+        expect(provider).toHaveProperty('enabled');
+      });
+    });
+  });
+
+  describe('getProviderById', () => {
+    it('should return provider by id', () => {
+      const provider = getProviderById('chatgpt');
+
+      expect(provider).toBeDefined();
+      expect(provider.id).toBe('chatgpt');
+      expect(provider.name).toBe('ChatGPT');
+    });
+
+    it('should return undefined for non-existent provider', () => {
+      const provider = getProviderById('nonexistent');
+
+      expect(provider).toBeUndefined();
+    });
+  });
+
+  describe('getProviderByIdWithSettings', () => {
+    it('should return provider with default URL', async () => {
+      chrome.storage.sync.get.mockResolvedValue({});
+
+      const provider = await getProviderByIdWithSettings('chatgpt');
+
+      expect(provider).toBeDefined();
+      expect(provider.url).toBe('https://chatgpt.com');
+    });
+
+    it('should return null for non-existent provider', async () => {
+      const provider = await getProviderByIdWithSettings('nonexistent');
+
+      expect(provider).toBeNull();
+    });
+  });
+
+  describe('getEnabledProviders', () => {
+    it('should return enabled providers from settings', async () => {
+      chrome.storage.sync.get.mockResolvedValue({
+        enabledProviders: ['chatgpt', 'claude'],
+      });
+
+      const providers = await getEnabledProviders();
+
+      expect(providers).toHaveLength(2);
+      expect(providers[0].id).toBe('chatgpt');
+      expect(providers[1].id).toBe('claude');
+    });
+
+    it('keeps synced optional preferences but excludes providers unavailable on this device', async () => {
+      chrome.storage.sync.get.mockResolvedValue({
+        enabledProviders: ['chatgpt', 'qwen-cn', 'qwen-global'],
+        providerOrder: ['chatgpt', 'qwen-cn', 'qwen-global'],
+      });
+      chrome.permissions = {
+        contains: vi.fn(({ origins }) => Promise.resolve(
+          origins.includes('https://chat.qwen.ai/*')
+        )),
+      };
+
+      const providers = await getEnabledProviders();
+
+      expect(providers.map(({ id }) => id)).toEqual(['chatgpt', 'qwen-global']);
+      expect(chrome.storage.sync.set).not.toHaveBeenCalled();
+    });
+
+    it('should use default settings when not provided', async () => {
+      chrome.storage.sync.get.mockImplementation((defaults) =>
+        Promise.resolve(defaults)
+      );
+
+      const providers = await getEnabledProviders();
+
+      expect(providers.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('getProviderIcon', () => {
+    it('returns the dark icon when theme is dark', () => {
+      const provider = getProviderById('doubao');
+
+      expect(getProviderIcon(provider, 'dark')).toBe(provider.iconDark);
+    });
+
+    it('returns the light icon when theme is light', () => {
+      const provider = getProviderById('doubao');
+
+      expect(getProviderIcon(provider, 'light')).toBe(provider.icon);
+    });
+  });
+});
