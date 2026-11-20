@@ -2263,3 +2263,90 @@ html.snapshot-hide-cursor *::after {
 [data-theme="dark"] .btn-secondary:hover {
   background: #3a3a3a;
 }
+
+/* ===== 发送失败诊断弹窗 ===== */
+#panel-health-modal .modal-content {
+  max-width: 520px;
+}
+
+.panel-health-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #666;
+}
+
+#panel-health-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.panel-health-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #eee;
+  border-radius: 10px;
+  background: #fafafa;
+}
+
+.panel-health-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.panel-health-icon {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.panel-health-text {
+  min-width: 0;
+}
+
+.panel-health-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+}
+
+.panel-health-reason {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #888;
+}
+
+.panel-health-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.panel-health-actions .btn-secondary {
+  padding: 4px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+[data-theme="dark"] .panel-health-row {
+  border-color: #3a3a3a;
+  background: #242424;
+}
+
+[data-theme="dark"] .panel-health-name {
+  color: #e6e6e6;
+}
+
+[data-theme="dark"] .panel-health-reason,
+[data-theme="dark"] .panel-health-hint {
+  color: #9a9a9a;
+}

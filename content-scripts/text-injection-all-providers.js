@@ -168,7 +168,10 @@
     ],
     chatglm: [
       '#search-input-box textarea.scroll-display-none',
-      'textarea.scroll-display-none'
+      'textarea.scroll-display-none',
+      '#search-input-box [contenteditable="true"]',
+      '#input-box textarea',
+      '#search-input-box textarea'
     ],
     'zai-global': [
       'textarea[placeholder="How can I help you today?"]',
@@ -180,8 +183,11 @@
     ],
     yiyan: [
       '#chat-input[contenteditable="true"]',
+      '#chat-input',
       '.chat-input-editor[contenteditable="true"]',
+      '[contenteditable="true"][data-placeholder]',
       'div[contenteditable="true"][role="textbox"]',
+      'textarea[placeholder*="请输入"]',
       'div[contenteditable="true"]',
       'textarea'
     ],
@@ -290,6 +296,7 @@
   const SEND_BUTTON_SELECTORS = {
     chatgpt: [
       'button[data-testid="send-button"]',
+      '#composer-submit-button',
       'button[aria-label="Send prompt"]',
       'button[aria-label="Send"]',
       'form button[type="submit"]'
@@ -352,7 +359,9 @@
     chatglm: [
       '#search-input-box .enter.is-main-chat .enter-icon-container',
       '#search-input-box .enter.is-main-chat',
-      '.enter.is-main-chat'
+      '.enter.is-main-chat',
+      '#search-input-box .enter',
+      'button[class*="send"]'
     ],
     'zai-global': [
       'button.sendMessageButton'
@@ -366,6 +375,7 @@
       'button[aria-label="发送"]',
       'button[aria-label="Send"]',
       '[class*="send-btn"]:not([class*="disabled"])',
+      'button[class*="send"]:not([class*="disabled"])',
       'button[type="submit"]'
     ],
     'minimax-agent': [
@@ -1461,8 +1471,18 @@
         continue;
       }
 
+      // 侧边栏搜索框、顶部搜索框不是聊天输入框，直接排除。
+      if (element.closest('nav, aside, header, [role="navigation"], [role="search"], [role="banner"]')) {
+        continue;
+      }
+
       const rect = element.getBoundingClientRect();
-      if (rect.width < 160 || rect.height < 18) {
+      if (rect.width < 240 || rect.height < 20) {
+        continue;
+      }
+
+      // 聊天输入框基本都在视口下半部分。
+      if (viewportHeight > 0 && rect.bottom < viewportHeight * 0.45) {
         continue;
       }
 
@@ -1484,6 +1504,35 @@
       if (element) return element;
     }
     return findGenericComposer();
+  }
+
+  // 找不到输入框时，判断页面是不是登录墙：路径像登录页，或页面上有可见的
+  // 「登录 / Sign in / Log in」入口。用来给多面板页一个可执行的失败原因。
+  const AUTH_HINT_PATTERN = /^(登录|登入|立即登录|去登录|sign\s?in|log\s?in|login|continue with|使用.*登录)/i;
+
+  function detectLoginWall() {
+    const path = String(window.location.pathname || '').toLowerCase();
+    if (/\/(login|signin|sign-in|auth|passport|sso)(\/|$)/.test(path)) {
+      return true;
+    }
+
+    const candidates = document.querySelectorAll('a, button, [role="button"]');
+    for (const element of candidates) {
+      if (!(element instanceof HTMLElement) || !isVisibleElement(element)) {
+        continue;
+      }
+
+      const label = (element.getAttribute('aria-label') || element.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!label || label.length > 24) {
+        continue;
+      }
+
+      if (AUTH_HINT_PATTERN.test(label)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   function clickGoogleSendButton(mode) {
@@ -3769,11 +3818,18 @@
     }
 
     if (!injected) {
-      console.error(`[Text Injection] ${provider} editor not found after retries`);
+      const authRequired = detectLoginWall();
+      console.error(
+        `[Text Injection] ${provider} editor not found after retries`,
+        authRequired ? '(login wall detected)' : ''
+      );
       postMultiPanelActionResult(
         requestId,
         provider,
-        createImageInjectionFailure(IMAGE_INJECTION_REASONS.CONTROL_NOT_FOUND, []),
+        createImageInjectionFailure(
+          authRequired ? 'auth-required' : IMAGE_INJECTION_REASONS.CONTROL_NOT_FOUND,
+          []
+        ),
         'send'
       );
       return;
@@ -3806,7 +3862,7 @@
       provider,
       clicked
         ? createImageInjectionSuccess([])
-        : createImageInjectionFailure(IMAGE_INJECTION_REASONS.CONTROL_NOT_FOUND, []),
+        : createImageInjectionFailure('send-not-found', []),
       'send'
     );
   }

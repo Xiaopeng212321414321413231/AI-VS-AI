@@ -279,6 +279,7 @@ async function init() {
   setupEventListeners();
   setupRatingPrompt();
   setupShareSnapshot();
+  setupPanelHealthDialog();
   updateTemporaryChatButtonState();
   focusUnifiedInput({ force: true });
 
@@ -1379,7 +1380,7 @@ async function addPanel(providerId) {
       </div>
       <iframe
         src="${getProviderFrameUrl(providerId)}"
-        sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+        sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads allow-storage-access-by-user-activation"
         allow="clipboard-read; clipboard-write"
       ></iframe>
     </div>
@@ -1872,8 +1873,6 @@ export async function broadcastMessage(text, autoSubmit = true) {
     }
 
     if (failed > 0) {
-      const failedProviders = [];
-
       // 记录失败面板，让「填入」按钮变成「重试失败」，下次只补发这些模型。
       setFillRetryState(
         normalizedResults
@@ -1881,24 +1880,28 @@ export async function broadcastMessage(text, autoSubmit = true) {
           .map(result => result.panelId)
       );
 
-      normalizedResults.forEach(result => {
-        if (!result || result.ok || !result.panelId) {
-          return;
-        }
+      const failures = normalizedResults
+        .filter(result => result && !result.ok && result.panelId)
+        .map(result => ({
+          panel: panels.find(candidate => candidate.id === result.panelId),
+          reason: result.reason || 'injection-error'
+        }))
+        .filter(entry => Boolean(entry.panel));
 
-        const panel = panels.find(candidate => candidate.id === result.panelId);
-        const providerName = panel ? getProviderById(panel.providerId)?.name : null;
-        if (providerName && !failedProviders.includes(providerName)) {
-          failedProviders.push(providerName);
-        }
-      });
+      if (failures.length > 0) {
+        const failedProviders = failures
+          .map(({ panel }) => getProviderById(panel.providerId)?.name)
+          .filter(Boolean);
 
-      if (failedProviders.length > 0) {
         showToast(
           shouldAutoSubmit
-            ? `${failedProviders.join('、')} 没收到消息，请检查是否已登录或页面是否加载完成`
+            ? `${failedProviders.join('、')} 没收到消息，点开看原因`
             : `${failedProviders.join('、')} 填入失败，可点「重试失败」`
         );
+
+        if (shouldAutoSubmit) {
+          showPanelHealthDialog(failures);
+        }
       }
     }
 
@@ -3886,6 +3889,102 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+// ===== 发送失败诊断 =====
+const PANEL_FAILURE_REASON_TEXT = {
+  'auth-required': '看起来没有登录，先在新标签页登录一次',
+  'control-not-found': '找不到输入框（页面改版或还没加载完）',
+  'send-not-found': '已经填进去了，但发送按钮点不动',
+  'preview-timeout': '面板没有响应（多半没加载完或未登录）',
+  'unsupported': '这个模型不支持本次的内容',
+  'injection-error': '注入过程报错'
+};
+
+function closePanelHealthDialog() {
+  const modal = document.getElementById('panel-health-modal');
+  if (modal) {
+    modal.style.display = 'none';
+  }
+}
+
+function reloadPanelById(panelId) {
+  const panel = panels.find(candidate => candidate.id === panelId);
+  if (!panel) {
+    return;
+  }
+
+  panel.currentUrl = null;
+  reloadPanelIframe(panel);
+}
+
+function showPanelHealthDialog(failures) {
+  const modal = document.getElementById('panel-health-modal');
+  const list = document.getElementById('panel-health-list');
+  if (!modal || !list || failures.length === 0) {
+    return;
+  }
+
+  list.innerHTML = failures.map(({ panel, reason }) => {
+    const provider = getProviderById(panel.providerId);
+    const name = provider?.name || panel.providerId;
+    const icon = provider ? getThemeAwareProviderIcon(provider) : '';
+    const reasonText = PANEL_FAILURE_REASON_TEXT[reason] || '未知原因';
+
+    return `
+      <div class="panel-health-row" data-panel-id="${panel.id}">
+        <div class="panel-health-main">
+          <img src="${icon}" alt="" class="panel-health-icon">
+          <div class="panel-health-text">
+            <div class="panel-health-name">${escapeHtmlAttribute(name)}</div>
+            <div class="panel-health-reason">${escapeHtmlAttribute(reasonText)}</div>
+          </div>
+        </div>
+        <div class="panel-health-actions">
+          <button type="button" class="btn-secondary panel-health-open" data-panel-id="${panel.id}">新标签页打开</button>
+          <button type="button" class="btn-secondary panel-health-reload" data-panel-id="${panel.id}">重新加载</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  list.querySelectorAll('.panel-health-open').forEach(button => {
+    button.addEventListener('click', () => {
+      const panel = panels.find(candidate => candidate.id === button.dataset.panelId);
+      if (panel) {
+        void openProviderTopLevel(panel);
+      }
+    });
+  });
+
+  list.querySelectorAll('.panel-health-reload').forEach(button => {
+    button.addEventListener('click', () => {
+      reloadPanelById(button.dataset.panelId);
+    });
+  });
+
+  modal.style.display = 'flex';
+}
+
+function setupPanelHealthDialog() {
+  document.getElementById('close-panel-health')?.addEventListener('click', closePanelHealthDialog);
+  document.getElementById('panel-health-ok')?.addEventListener('click', closePanelHealthDialog);
+
+  document.getElementById('panel-health-reload-all')?.addEventListener('click', () => {
+    const modal = document.getElementById('panel-health-modal');
+    const panelIds = Array.from(modal?.querySelectorAll('.panel-health-row') || [])
+      .map(row => row.dataset.panelId)
+      .filter(Boolean);
+
+    panelIds.forEach(reloadPanelById);
+    closePanelHealthDialog();
+  });
+
+  document.getElementById('panel-health-modal')?.addEventListener('click', (event) => {
+    if (event.target?.id === 'panel-health-modal') {
+      closePanelHealthDialog();
+    }
+  });
 }
 
 function showToast(message) {

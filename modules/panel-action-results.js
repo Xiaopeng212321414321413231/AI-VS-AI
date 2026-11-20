@@ -4,6 +4,8 @@ export const PANEL_ACTION_RESULT_TIMEOUT_MS = 8000;
 
 const ALLOWED_FAILURE_REASONS = new Set([
   'control-not-found',
+  'send-not-found',
+  'auth-required',
   'unsupported',
   'preview-timeout',
   'injection-error'

@@ -9,7 +9,10 @@
   // served to some accounts.
   const EDITOR_SELECTORS = Object.freeze([
     'form[data-chatgpt-composer] [data-composer-markdown][contenteditable="true"]',
-    '#prompt-textarea'
+    'form[data-chatgpt-composer] [contenteditable="true"]',
+    '#prompt-textarea[contenteditable="true"]',
+    '#prompt-textarea',
+    'form [contenteditable="true"]'
   ]);
 
   function isRendered(element) {

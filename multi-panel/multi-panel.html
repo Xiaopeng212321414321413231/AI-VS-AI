@@ -390,6 +390,26 @@
     </div>
   </div>
 
+  <!-- 发送失败诊断：告诉用户具体哪个模型没收到、为什么、怎么修 -->
+  <div id="panel-health-modal" class="modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="panel-health-title">
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h3 id="panel-health-title">这些模型没收到消息</h3>
+        <button class="close-btn" id="close-panel-health">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="panel-health-hint">通常是没登录、页面没加载完，或站点还没被授权。可以先在新标签页登录一次，再回来重新加载这个面板。</p>
+        <div id="panel-health-list"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="panel-health-reload-all" class="btn-secondary">全部重新加载</button>
+        <button id="panel-health-ok" class="btn-primary">知道了</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="multi-panel.js"></script>
 </body>
 </html>
