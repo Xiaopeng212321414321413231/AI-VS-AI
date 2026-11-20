@@ -38,7 +38,8 @@ export function isMatchingPanelActionResult(event, panel, requestId, action = 'f
     data.context === PANEL_ACTION_RESULT_CONTEXT &&
     data.requestId === requestId &&
     data.provider === panel.providerId &&
-    data.action === action &&
+    // 兼容旧版内容脚本：它只回 'fill'。requestId 已经唯一，不会误收其它批次。
+    (data.action === action || data.action === 'fill') &&
     panel.iframe?.contentWindow === event.source &&
     (data.status === 'succeeded' || data.status === 'failed')
   );
@@ -207,8 +208,11 @@ export function createPanelActionResultWaiter({
     resolvePromise = resolve;
     target.addEventListener('message', handleMessage);
     timeoutId = setTimeout(() => {
+      // `timedOut` distinguishes "面板没回执" from "面板明确报告失败"，
+      // 前者不能当成"没收到"，否则会把实际已经收到的模型也列出来。
       settle({
         ...createFailure(panel, 'preview-timeout'),
+        timedOut: true,
         succeededImageIds: normalizeSucceededImageIds(undefined, expectedImageIds, false)
       });
     }, timeoutMs);

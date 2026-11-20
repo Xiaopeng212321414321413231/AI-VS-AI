@@ -1884,19 +1884,30 @@ export async function broadcastMessage(text, autoSubmit = true) {
         .filter(result => result && !result.ok && result.panelId)
         .map(result => ({
           panel: panels.find(candidate => candidate.id === result.panelId),
-          reason: result.reason || 'injection-error'
+          reason: result.reason || 'injection-error',
+          timedOut: result.timedOut === true
         }))
         .filter(entry => Boolean(entry.panel));
 
       if (failures.length > 0) {
-        const failedProviders = failures
+        const confirmedFailures = failures.filter(entry => !entry.timedOut);
+        const unconfirmedFailures = failures.filter(entry => entry.timedOut);
+        const providerNames = entries => entries
           .map(({ panel }) => getProviderById(panel.providerId)?.name)
           .filter(Boolean);
 
+        const toastParts = [];
+        if (confirmedFailures.length > 0) {
+          toastParts.push(`${providerNames(confirmedFailures).join('、')} 没收到消息`);
+        }
+        if (unconfirmedFailures.length > 0) {
+          toastParts.push(`${providerNames(unconfirmedFailures).join('、')} 没有回应`);
+        }
+
         showToast(
           shouldAutoSubmit
-            ? `${failedProviders.join('、')} 没收到消息，点开看原因`
-            : `${failedProviders.join('、')} 填入失败，可点「重试失败」`
+            ? `${toastParts.join('；')}，点开看详情`
+            : `${toastParts.join('；')}，可点「重试失败」`
         );
 
         if (shouldAutoSubmit) {
@@ -3901,6 +3912,8 @@ const PANEL_FAILURE_REASON_TEXT = {
   'injection-error': '注入过程报错'
 };
 
+let lastPanelHealthFailures = [];
+
 function closePanelHealthDialog() {
   const modal = document.getElementById('panel-health-modal');
   if (modal) {
@@ -3925,11 +3938,15 @@ function showPanelHealthDialog(failures) {
     return;
   }
 
-  list.innerHTML = failures.map(({ panel, reason }) => {
+  lastPanelHealthFailures = failures;
+
+  list.innerHTML = failures.map(({ panel, reason, timedOut }) => {
     const provider = getProviderById(panel.providerId);
     const name = provider?.name || panel.providerId;
     const icon = provider ? getThemeAwareProviderIcon(provider) : '';
-    const reasonText = PANEL_FAILURE_REASON_TEXT[reason] || '未知原因';
+    const reasonText = timedOut
+      ? '面板没有回应（可能没加载完、未登录，或被站点拦截）'
+      : (PANEL_FAILURE_REASON_TEXT[reason] || '未知原因');
 
     return `
       <div class="panel-health-row" data-panel-id="${panel.id}">
@@ -3966,7 +3983,36 @@ function showPanelHealthDialog(failures) {
   modal.style.display = 'flex';
 }
 
+function copyPanelHealthReport() {
+  const report = lastPanelHealthFailures.map(({ panel, reason, timedOut }) => ({
+    provider: panel.providerId,
+    name: getProviderById(panel.providerId)?.name || panel.providerId,
+    ok: false,
+    reason: timedOut ? 'no-ack' : reason,
+    url: panel.currentUrl || '',
+    frame: panel.iframe?.getAttribute('src') || ''
+  }));
+
+  const text = JSON.stringify({
+    app: 'AI对比网站',
+    version: chrome?.runtime?.getManifest?.()?.version || '',
+    time: new Date().toISOString(),
+    failures: report
+  }, null, 2);
+
+  const done = () => showToast('诊断信息已复制，粘贴给我即可');
+  const fallback = () => showToast('复制失败，请手动截图弹窗');
+
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(fallback);
+    return;
+  }
+
+  fallback();
+}
+
 function setupPanelHealthDialog() {
+  document.getElementById('panel-health-copy')?.addEventListener('click', copyPanelHealthReport);
   document.getElementById('close-panel-health')?.addEventListener('click', closePanelHealthDialog);
   document.getElementById('panel-health-ok')?.addEventListener('click', closePanelHealthDialog);
 
