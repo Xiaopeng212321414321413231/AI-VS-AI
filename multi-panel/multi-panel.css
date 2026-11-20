@@ -926,6 +926,64 @@ body {
   background: rgba(244, 67, 54, 0.9);
 }
 
+/* 普通文件附件（PDF / Word / 表格等）的卡片预览 */
+.image-preview-item.file-preview-item {
+  width: auto;
+  min-width: 118px;
+  max-width: 170px;
+  padding: 6px 8px;
+  background: #fafafa;
+}
+
+.file-preview-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-height: 46px;
+  overflow: hidden;
+}
+
+.file-preview-icon {
+  flex: 0 0 auto;
+  font-size: 17px;
+  line-height: 1;
+  color: #1976d2;
+}
+
+.file-preview-name {
+  flex: 0 0 auto;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.25;
+  color: #333;
+}
+
+.file-preview-size {
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 1.2;
+  color: #999;
+}
+
+[data-theme="dark"] .image-preview-item.file-preview-item {
+  background: #232323;
+  border-color: #444;
+}
+
+[data-theme="dark"] .file-preview-name {
+  color: #ddd;
+}
+
+[data-theme="dark"] .file-preview-icon {
+  color: #7cb7f5;
+}
+
 #unified-input {
   width: 100%;
   padding: 10px 16px;

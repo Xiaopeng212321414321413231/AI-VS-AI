@@ -315,12 +315,34 @@ export function normalizePanelResults(settledResults, targetPanels) {
  * @returns {{isFillAction: boolean, shouldAutoSubmit: boolean, messageType: string, waitForActionResult: boolean}}
  */
 export function getPanelBroadcastActionParams({ hasImages = false, hasFailedPanels = false, autoSubmit = true } = {}) {
-  const isFillAction = Boolean(hasImages || hasFailedPanels);
+  // An explicit send always broadcasts to every panel and submits. It must never
+  // be downgraded to "fill only" by a leftover attachment-retry state, otherwise
+  // panels that succeeded earlier silently stop receiving new prompts.
+  if (autoSubmit) {
+    return {
+      isFillAction: Boolean(hasImages),
+      shouldAutoSubmit: true,
+      messageType: hasImages ? 'INJECT_TEXT_WITH_IMAGES' : 'INJECT_TEXT',
+      waitForActionResult: true
+    };
+  }
+
+  // Filling with attachments, or retrying the panels that failed last time.
+  if (hasImages || hasFailedPanels) {
+    return {
+      isFillAction: true,
+      shouldAutoSubmit: false,
+      messageType: 'INJECT_TEXT_WITH_IMAGES',
+      waitForActionResult: true
+    };
+  }
+
+  // Plain fill: text only, no submit, no per-panel ACK.
   return {
-    isFillAction,
-    shouldAutoSubmit: isFillAction ? false : autoSubmit,
-    messageType: isFillAction ? 'INJECT_TEXT_WITH_IMAGES' : 'INJECT_TEXT',
-    waitForActionResult: isFillAction
+    isFillAction: false,
+    shouldAutoSubmit: false,
+    messageType: 'INJECT_TEXT',
+    waitForActionResult: false
   };
 }
 

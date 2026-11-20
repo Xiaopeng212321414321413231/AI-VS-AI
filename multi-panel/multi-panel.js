@@ -251,6 +251,7 @@ async function init() {
   translatePage();
   registerRuntimeMessageListener();
   registerStorageChangeListener();
+  registerOptionalProviderAccessRefresh();
 
   // Detect window type and load mode
   await detectWindowType();
@@ -590,6 +591,43 @@ async function updateGoogleProviderMode(mode, { persist = false, reloadPanels = 
   if (persist) {
     await saveSetting('googleProviderMode', normalizedMode);
   }
+}
+
+// 新授权的主机权限只有在页面重新加载后才会注入内容脚本；已经打开的面板
+// 需要重载一次，否则「刚授权的那个窗口」会一直收不到消息。
+function registerOptionalProviderAccessRefresh() {
+  if (!chrome?.permissions?.onAdded?.addListener) {
+    return;
+  }
+
+  chrome.permissions.onAdded.addListener(async (permissions) => {
+    try {
+      const settings = await chrome.storage.sync.get({ enabledProviders: DEFAULT_PROVIDER_IDS });
+      const enabledProviders = Array.isArray(settings.enabledProviders)
+        ? settings.enabledProviders
+        : [...DEFAULT_PROVIDER_IDS];
+      await syncOptionalProviderAccess(enabledProviders);
+    } catch (error) {
+      console.warn('[Multi-Panel] 同步可选模型权限失败:', error);
+    }
+
+    const grantedOrigins = Array.isArray(permissions?.origins) ? permissions.origins : [];
+    if (grantedOrigins.length === 0) {
+      return;
+    }
+
+    panels.forEach(panel => {
+      const provider = getProviderById(panel.providerId);
+      const providerOrigins = provider?.optionalOrigins || [];
+      const needsReload = providerOrigins.some(origin => grantedOrigins.includes(origin));
+      if (!needsReload) {
+        return;
+      }
+
+      panel.currentUrl = null;
+      reloadPanelIframe(panel);
+    });
+  });
 }
 
 function registerStorageChangeListener() {
@@ -1671,7 +1709,13 @@ export async function broadcastMessage(text, autoSubmit = true) {
 
     cleanStalePanelRetryState(panels, pendingFillImageIdsByPanel, failedFillPanelIds);
 
-    const targetPanels = hasImages
+    // 只有「填入/重试失败面板」才定向到失败面板；点「全部发送」永远发给所有面板。
+    if (shouldAutoSubmit && failedFillPanelIds.size > 0) {
+      setFillRetryState([]);
+      pendingFillImageIdsByPanel.clear();
+    }
+
+    const targetPanels = !shouldAutoSubmit && failedFillPanelIds.size > 0
       ? getFillTargetPanels(panels, failedFillPanelIds)
       : panels;
     const previousFailedPanelIds = new Set(failedFillPanelIds);
@@ -1698,7 +1742,7 @@ export async function broadcastMessage(text, autoSubmit = true) {
         const imageCount = panelImages.length;
         const panelTimeoutMs = isFillAction
           ? getPanelActionResultTimeoutMs(imageCount)
-          : 8000;
+          : 9000;
 
         return sendToPanel(
           panel,
@@ -1754,16 +1798,22 @@ export async function broadcastMessage(text, autoSubmit = true) {
       const { successfulCount, failedCount } = summary;
 
       if (summary.allSucceeded) {
-        statusEl.textContent = `已填入 ${successfulCount} 个输入框`;
+        statusEl.textContent = shouldAutoSubmit
+          ? `已发送到 ${successfulCount} 个模型`
+          : `已填入 ${successfulCount} 个输入框`;
         statusEl.className = 'send-status success';
         setFillRetryState([]);
         pendingFillImageIdsByPanel.clear();
       } else if (successfulCount > 0) {
-        statusEl.textContent = `已填入 ${successfulCount}/${totalCount}，失败 ${failedCount} 个`;
+        statusEl.textContent = shouldAutoSubmit
+          ? `已发送 ${successfulCount}/${totalCount}，${failedCount} 个未成功`
+          : `已填入 ${successfulCount}/${totalCount}，失败 ${failedCount} 个`;
         statusEl.className = 'send-status partial';
         setFillRetryState(summary.failedPanelIds);
       } else {
-        statusEl.textContent = `填入失败：${failedCount}/${totalCount} 个面板未成功`;
+        statusEl.textContent = shouldAutoSubmit
+          ? `发送失败：${failedCount}/${totalCount} 个面板未成功`
+          : `填入失败：${failedCount}/${totalCount} 个面板未成功`;
         statusEl.className = 'send-status error';
         setFillRetryState(summary.failedPanelIds);
       }
@@ -1821,6 +1871,37 @@ export async function broadcastMessage(text, autoSubmit = true) {
       statusEl.className = 'send-status error';
     }
 
+    if (failed > 0) {
+      const failedProviders = [];
+
+      // 记录失败面板，让「填入」按钮变成「重试失败」，下次只补发这些模型。
+      setFillRetryState(
+        normalizedResults
+          .filter(result => result && !result.ok && result.panelId)
+          .map(result => result.panelId)
+      );
+
+      normalizedResults.forEach(result => {
+        if (!result || result.ok || !result.panelId) {
+          return;
+        }
+
+        const panel = panels.find(candidate => candidate.id === result.panelId);
+        const providerName = panel ? getProviderById(panel.providerId)?.name : null;
+        if (providerName && !failedProviders.includes(providerName)) {
+          failedProviders.push(providerName);
+        }
+      });
+
+      if (failedProviders.length > 0) {
+        showToast(
+          shouldAutoSubmit
+            ? `${failedProviders.join('、')} 没收到消息，请检查是否已登录或页面是否加载完成`
+            : `${failedProviders.join('、')} 填入失败，可点「重试失败」`
+        );
+      }
+    }
+
     // Clear status after delay
     setTimeout(() => {
       statusEl.textContent = '';
@@ -1847,7 +1928,7 @@ export async function broadcastMessage(text, autoSubmit = true) {
     }
   } catch (error) {
     console.error('Error in broadcastMessage:', error);
-    statusEl.textContent = 'Error occurred';
+    statusEl.textContent = '发送出错';
     statusEl.className = 'send-status error';
     setTimeout(() => {
       statusEl.textContent = '';
@@ -1883,6 +1964,8 @@ export async function sendToPanel(
 
   const isFillAction = options.isFillAction === true;
   const waitForActionResult = options.waitForActionResult === true;
+  // 填入用 'fill'，明确发送用 'send'；两条链路各自等待自己的回执。
+  const actionName = isFillAction ? 'fill' : 'send';
   const expectedImageIds = images.map(img => img.id).filter(Boolean);
 
   const waiter = waitForActionResult
@@ -1891,7 +1974,7 @@ export async function sendToPanel(
       panel,
       requestId,
       expectedImageIds,
-      action: 'fill',
+      action: actionName,
       timeoutMs
     })
     : null;
@@ -1912,7 +1995,7 @@ export async function sendToPanel(
       images: imagesPayload,
       autoSubmit,
       requestId,
-      action: waitForActionResult ? 'fill' : undefined,
+      action: waitForActionResult ? actionName : undefined,
       retry: waitForActionResult ? isRetry : undefined,
       providerMode: getPanelProviderMode(panel),
       context: 'multi-panel'
@@ -2678,27 +2761,37 @@ function setupShareSnapshot() {
   });
 }
 
-// ===== Image Management =====
-const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB per image
+// ===== Attachment Management (images + documents) =====
+const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB per attachment
 const MAX_IMAGE_COUNT = 10;
+const IMAGE_EXTENSION_PATTERN = /\.(png|jpe?g|gif|webp|bmp|svg|avif|heic|heif|ico)$/i;
+
+function isImageFile(file) {
+  if (!file) {
+    return false;
+  }
+
+  if (typeof file.type === 'string' && file.type) {
+    return file.type.startsWith('image/');
+  }
+
+  return IMAGE_EXTENSION_PATTERN.test(file.name || '');
+}
 
 async function addImage(file) {
   try {
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      showToast('请选择图片文件');
-      return false;
-    }
+    // 图片和普通文件都可以上传，只有图片才走缩略图预览。
+    const fileIsImage = isImageFile(file);
 
     // Validate file size
     if (file.size > MAX_IMAGE_SIZE) {
-      showToast('图片大小需小于 20MB');
+      showToast('文件大小需小于 20MB');
       return false;
     }
 
-    // Validate image count
+    // Validate attachment count
     if (uploadedImages.length >= MAX_IMAGE_COUNT) {
-      showToast(`最多只能上传 ${MAX_IMAGE_COUNT} 张图片`);
+      showToast(`最多只能上传 ${MAX_IMAGE_COUNT} 个文件`);
       return false;
     }
 
@@ -2710,7 +2803,9 @@ async function addImage(file) {
     uploadedImages.push({
       id: imageId,
       name: file.name,
-      type: file.type,
+      type: file.type || 'application/octet-stream',
+      kind: fileIsImage ? 'image' : 'file',
+      size: file.size,
       dataUrl: dataUrl
     });
     resetFillRetryState();
@@ -2746,6 +2841,38 @@ function clearAllImages() {
   renderImagePreviews();
 }
 
+function escapeHtmlAttribute(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatFileSize(bytes) {
+  const size = Number(bytes) || 0;
+  if (size >= 1024 * 1024) {
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  if (size >= 1024) {
+    return `${Math.round(size / 1024)} KB`;
+  }
+  return `${size} B`;
+}
+
+function getFileDisplayName(name) {
+  const value = String(name || '文件');
+  if (value.length <= 14) {
+    return value;
+  }
+  const dotIndex = value.lastIndexOf('.');
+  if (dotIndex > 0 && value.length - dotIndex <= 8) {
+    return `${value.slice(0, 8)}…${value.slice(dotIndex)}`;
+  }
+  return `${value.slice(0, 10)}…`;
+}
+
 function renderImagePreviews() {
   const container = document.getElementById('image-preview-container');
 
@@ -2754,14 +2881,34 @@ function renderImagePreviews() {
     return;
   }
 
-  container.innerHTML = uploadedImages.map(img => `
-    <div class="image-preview-item" data-image-id="${img.id}">
-      <img src="${img.dataUrl}" alt="${img.name}">
+  container.innerHTML = uploadedImages.map(img => {
+    const isImage = img.kind !== 'file';
+    const name = escapeHtmlAttribute(img.name);
+
+    if (isImage) {
+      return `
+    <div class="image-preview-item" data-image-id="${img.id}" title="${name}">
+      <img src="${img.dataUrl}" alt="${name}">
       <button class="remove-image" onclick="window.removeImageById('${img.id}')" title="移除">
         <span class="material-symbols-outlined">close</span>
       </button>
     </div>
-  `).join('');
+  `;
+    }
+
+    return `
+    <div class="image-preview-item file-preview-item" data-image-id="${img.id}" title="${name}">
+      <div class="file-preview-body">
+        <span class="material-symbols-outlined file-preview-icon">description</span>
+        <span class="file-preview-name">${escapeHtmlAttribute(getFileDisplayName(img.name))}</span>
+        <span class="file-preview-size">${formatFileSize(img.size)}</span>
+      </div>
+      <button class="remove-image" onclick="window.removeImageById('${img.id}')" title="移除">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+  `;
+  }).join('');
 }
 
 // Expose removeImage to window for onclick handler
@@ -3216,7 +3363,7 @@ function setupEventListeners() {
     e.preventDefault();
     inputWrapper.classList.remove('drag-over');
 
-    const files = Array.from(e.dataTransfer.files).filter(file => file.type.startsWith('image/'));
+    const files = Array.from(e.dataTransfer.files);
     for (const file of files) {
       await addImage(file);
     }

@@ -707,7 +707,7 @@
     }, '*');
   }
 
-  function postMultiPanelActionResult(requestId, provider, result) {
+  function postMultiPanelActionResult(requestId, provider, result, action = 'fill') {
     if (!requestId || !provider || window.parent === window) {
       return;
     }
@@ -717,7 +717,7 @@
       context: MULTI_PANEL_ACTION_RESULT_CONTEXT,
       requestId,
       provider,
-      action: 'fill',
+      action,
       status: result.ok ? 'succeeded' : 'failed'
     };
 
@@ -1441,11 +1441,49 @@
     }
   }
 
+  // 站点改版后 provider 专用选择器可能全部失效。兜底逻辑：在视口内找最像
+  // 输入框的可编辑元素（靠底部、够宽、可见且未禁用），保证消息仍然能填进去。
+  function findGenericComposer() {
+    const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+    const candidates = Array.from(document.querySelectorAll(
+      'textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"]'
+    ));
+
+    let best = null;
+    let bestScore = -Infinity;
+
+    for (const element of candidates) {
+      if (!(element instanceof HTMLElement) || !isVisibleElement(element)) {
+        continue;
+      }
+
+      if (element.tagName === 'TEXTAREA' && (element.disabled || element.readOnly)) {
+        continue;
+      }
+
+      const rect = element.getBoundingClientRect();
+      if (rect.width < 160 || rect.height < 18) {
+        continue;
+      }
+
+      // 输入框通常贴着页面底部，且越宽大越可能是主输入框。
+      const bottomProximity = viewportHeight > 0 ? rect.bottom / viewportHeight : 0;
+      const score = bottomProximity * 2 + Math.min(rect.width, 900) / 900 + Math.min(rect.height, 240) / 240;
+
+      if (score > bestScore) {
+        best = element;
+        bestScore = score;
+      }
+    }
+
+    return best;
+  }
+
   function findProviderInput(provider) {
     for (const element of findProviderInputs(provider)) {
       if (element) return element;
     }
-    return null;
+    return findGenericComposer();
   }
 
   function clickGoogleSendButton(mode) {
@@ -2058,7 +2096,9 @@
       return createImageInjectionFailure(IMAGE_INJECTION_REASONS.UNSUPPORTED, []);
     }
 
-    if (!PROVIDER_IMAGE_SUPPORT[provider]) {
+    const hasFileAttachment = (images || []).some(image => !String(image?.type || '').startsWith('image/'));
+
+    if (!PROVIDER_IMAGE_SUPPORT[provider] && !hasFileAttachment) {
       console.warn('[Image Injection] Provider does not support images:', provider);
       // For providers that don't support images, just inject text
       if (text) {
@@ -2123,8 +2163,8 @@
         console.warn('[Image Injection] One or more images failed to inject for:', provider);
       }
 
-      // Wait for images to upload
-      await sleep(500);
+      // Wait for the provider to finish uploading before typing / submitting.
+      await sleep(hasFileAttachment ? 2000 : 800);
 
       // Then inject text if provided
       let textInjected = true;
@@ -2193,7 +2233,17 @@
 
   // Inject a single image to the provider using provider-specific strategy
   async function injectSingleImage(provider, imageData, { retry = false } = {}) {
-    console.log('[Image Injection] Injecting image to', provider);
+    const isImageAttachment = String(imageData?.type || '').startsWith('image/');
+    console.log(`[Image Injection] Injecting ${isImageAttachment ? 'image' : 'file'} to`, provider);
+
+    // 图片走各站点的专属策略；普通文件没有通用的预览逻辑，直接塞进文件输入框。
+    if (!isImageAttachment) {
+      const uploaded = await tryFileInputUpload(provider, imageData);
+      if (!uploaded) {
+        console.warn('[File Injection] File input upload failed for', provider);
+      }
+      return normalizeImageInjectionResult(uploaded);
+    }
 
     // Use provider-specific strategies
     let result;
@@ -3415,11 +3465,15 @@
         if (fileInput) break;
       }
 
+      const isImageAttachment = String(imageData?.type || '').startsWith('image/');
+
       // If no direct file input, try to find any file input
       if (!fileInput) {
         const allFileInputs = document.querySelectorAll('input[type="file"]');
         for (const input of allFileInputs) {
-          if (!input.accept || input.accept.includes('image') || input.accept.includes('*')) {
+          const acceptsImages = !input.accept || input.accept.includes('image') || input.accept.includes('*');
+          // 图片只投给能收图片的输入框；普通文件则任何文件输入框都可以试。
+          if (isImageAttachment ? acceptsImages : true) {
             fileInput = input;
             break;
           }
@@ -3670,81 +3724,116 @@
     }
 
     if (provider === 'google') {
-      const success = handleGoogleTextInjection(text, shouldAutoSubmit, providerMode);
-      if (success) {
-        console.log('[Text Injection] Text injected into Google using mode:', providerMode);
-        return;
-      }
-
-      console.warn('[Text Injection] Google editor not found on first try, retrying...');
-      [500, 1000].forEach((delay, index, delays) => {
-        setTimeout(() => {
-          const retried = handleGoogleTextInjection(text, shouldAutoSubmit, providerMode);
-          if (!retried && index === delays.length - 1) {
-            console.error('[Text Injection] Google editor not found after retries');
-          }
-        }, delay);
+      void runGoogleTextInjectionWithAck({
+        provider,
+        text,
+        shouldAutoSubmit,
+        providerMode,
+        requestId: event.data.requestId || null
       });
       return;
     }
 
-    if (!getProviderInputSelectors(provider)) {
-      console.warn('No selectors configured for provider:', provider);
+    void runTextInjectionWithAck({
+      provider,
+      text,
+      shouldAutoSubmit,
+      providerMode,
+      requestId: event.data.requestId || null
+    });
+  }
+
+  // ===== 文本注入：多轮回退 + 回执 =====
+  // 页面刚加载、站点改版、输入框延迟挂载都可能导致第一次注入落空。
+  // 这里用固定节奏重试，并在结束时回传结果，让多面板页能指出哪个模型没收到。
+  const TEXT_INJECTION_RETRY_DELAYS = [0, 400, 1000, 2000, 3500];
+  const SEND_BUTTON_CLICK_ATTEMPTS = 4;
+
+  async function runTextInjectionWithAck({ provider, text, shouldAutoSubmit, providerMode, requestId }) {
+    let injected = false;
+
+    for (const delay of TEXT_INJECTION_RETRY_DELAYS) {
+      if (delay > 0) {
+        await sleep(delay);
+      }
+
+      const element = findProviderInput(provider);
+      if (!element) {
+        continue;
+      }
+
+      if (injectTextIntoElement(element, text, provider)) {
+        injected = true;
+        break;
+      }
+    }
+
+    if (!injected) {
+      console.error(`[Text Injection] ${provider} editor not found after retries`);
+      postMultiPanelActionResult(
+        requestId,
+        provider,
+        createImageInjectionFailure(IMAGE_INJECTION_REASONS.CONTROL_NOT_FOUND, []),
+        'send'
+      );
       return;
     }
 
-    // Try each selector until we find an element
-    const element = findProviderInput(provider);
+    console.log('[Text Injection] Text injected into', provider);
 
-    if (element) {
-      const success = injectTextIntoElement(element, text, provider);
-      if (success) {
-        console.log('[Text Injection] Text injected into', provider);
-
-        // Auto-submit if requested (only from multi-panel context)
-        if (shouldAutoSubmit) {
-          // Wait for framework-managed composer state to catch up before sending.
-          const delay = SLOW_COMPOSER_PROVIDERS.has(provider) ? 800 : 500;
-          setTimeout(() => {
-            console.log('[Text Injection] Attempting to click send button for', provider);
-            const clicked = clickSendButton(provider, providerMode);
-            if (!clicked) {
-              console.warn('[Text Injection] Failed to click send button for', provider);
-            }
-          }, delay);
-        }
-      } else {
-        console.error(`[Text Injection] Failed to inject text into ${provider}`);
-      }
-    } else {
-      console.warn(`[Text Injection] ${provider} editor not found on first try, retrying...`);
-      // Retry after a short delay in case page is still loading
-      // Use multiple retries for DeepSeek
-      const retryDelays = provider === 'deepseek' ? [1000, 2000] : [1000];
-
-      retryDelays.forEach((delay, index) => {
-        setTimeout(() => {
-          const retryElement = findProviderInput(provider);
-          if (retryElement) {
-            const success = injectTextIntoElement(retryElement, text, provider);
-            if (success) {
-              console.log('[Text Injection] Text injected on retry into', provider);
-              if (shouldAutoSubmit) {
-                const submitDelay = SLOW_COMPOSER_PROVIDERS.has(provider) ? 800 : 500;
-                setTimeout(() => {
-                  console.log('[Text Injection] Attempting to click send button for', provider, 'after retry');
-                  clickSendButton(provider, providerMode);
-                }, submitDelay);
-              }
-            }
-          } else if (index === retryDelays.length - 1) {
-            console.error(`[Text Injection] ${provider} editor not found after ${retryDelays.length} retries`);
-            console.error('[Text Injection] Available textareas:', document.querySelectorAll('textarea'));
-            console.error('[Text Injection] Available contenteditable:', document.querySelectorAll('[contenteditable="true"]'));
-          }
-        }, delay);
-      });
+    if (!shouldAutoSubmit) {
+      postMultiPanelActionResult(requestId, provider, createImageInjectionSuccess([]), 'send');
+      return;
     }
+
+    // 等框架把输入框状态同步到发送按钮，再点击。
+    await sleep(SLOW_COMPOSER_PROVIDERS.has(provider) ? 800 : 500);
+
+    let clicked = false;
+    for (let attempt = 0; attempt < SEND_BUTTON_CLICK_ATTEMPTS && !clicked; attempt += 1) {
+      if (attempt > 0) {
+        await sleep(700);
+      }
+      clicked = clickSendButton(provider, providerMode) === true;
+    }
+
+    if (!clicked) {
+      console.warn('[Text Injection] Failed to click send button for', provider);
+    }
+
+    postMultiPanelActionResult(
+      requestId,
+      provider,
+      clicked
+        ? createImageInjectionSuccess([])
+        : createImageInjectionFailure(IMAGE_INJECTION_REASONS.CONTROL_NOT_FOUND, []),
+      'send'
+    );
+  }
+
+  async function runGoogleTextInjectionWithAck({ provider, text, shouldAutoSubmit, providerMode, requestId }) {
+    let success = handleGoogleTextInjection(text, shouldAutoSubmit, providerMode);
+
+    for (const delay of [500, 1200, 2500]) {
+      if (success) {
+        break;
+      }
+      await sleep(delay);
+      success = handleGoogleTextInjection(text, shouldAutoSubmit, providerMode);
+    }
+
+    if (!success) {
+      console.warn('[Text Injection] Google editor not found after retries');
+    }
+
+    postMultiPanelActionResult(
+      requestId,
+      provider,
+      success
+        ? createImageInjectionSuccess([])
+        : createImageInjectionFailure(IMAGE_INJECTION_REASONS.CONTROL_NOT_FOUND, []),
+      'send'
+    );
   }
 
   // ===== Share snapshot: align and scroll the conversation for a capture =====

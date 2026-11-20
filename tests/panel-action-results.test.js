@@ -271,9 +271,23 @@ describe('getPanelBroadcastActionParams & determinePanelMessageType', () => {
       isFillAction: false,
       shouldAutoSubmit: true,
       messageType: 'INJECT_TEXT',
-      waitForActionResult: false,
+      waitForActionResult: true,
     });
     expect(determinePanelMessageType({ isFillAction: params.isFillAction })).toBe('INJECT_TEXT');
+  });
+
+  it('keeps Send All as a real send even when an earlier fill left failed panels', () => {
+    const params = getPanelBroadcastActionParams({
+      hasImages: false,
+      hasFailedPanels: true,
+      autoSubmit: true,
+    });
+    expect(params).toEqual({
+      isFillAction: false,
+      shouldAutoSubmit: true,
+      messageType: 'INJECT_TEXT',
+      waitForActionResult: true,
+    });
   });
 
   it('returns plain text parameters for plain text Fill Input Boxes', () => {
@@ -291,7 +305,7 @@ describe('getPanelBroadcastActionParams & determinePanelMessageType', () => {
     expect(determinePanelMessageType({ isFillAction: params.isFillAction })).toBe('INJECT_TEXT');
   });
 
-  it('returns image fill parameters for image fill operations', () => {
+  it('returns image send parameters for image Send All', () => {
     const params = getPanelBroadcastActionParams({
       hasImages: true,
       hasFailedPanels: false,
@@ -299,7 +313,7 @@ describe('getPanelBroadcastActionParams & determinePanelMessageType', () => {
     });
     expect(params).toEqual({
       isFillAction: true,
-      shouldAutoSubmit: false,
+      shouldAutoSubmit: true,
       messageType: 'INJECT_TEXT_WITH_IMAGES',
       waitForActionResult: true,
     });
