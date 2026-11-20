@@ -14,7 +14,7 @@ const PROVIDER_ALLOWED_HOSTS = {
   chatglm: new Set(['chatglm.cn']),
   'zai-global': new Set(['chat.z.ai']),
   yuanbao: new Set(['yuanbao.tencent.com']),
-  yiyan: new Set(['yiyan.baidu.com']),
+  yiyan: new Set(['yiyan.baidu.com', 'wenxin.baidu.com']),
   'minimax-agent': new Set([
     'agent.minimax.io',
     'agent.minimax.cn',

@@ -82,8 +82,9 @@ export const PROVIDERS = [
   {
     id: 'yiyan',
     name: '文心一言',
-    url: 'https://yiyan.baidu.com/',
-    topLevelUrl: 'https://yiyan.baidu.com/',
+    // yiyan.baidu.com 已 301 到 wenxin.baidu.com（百度文心助手），直接指向新域名
+    url: 'https://wenxin.baidu.com/',
+    topLevelUrl: 'https://wenxin.baidu.com/',
     icon: '/icons/providers/yiyan.svg',
     iconDark: '/icons/providers/yiyan.svg',
     enabled: true,

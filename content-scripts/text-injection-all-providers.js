@@ -167,11 +167,15 @@
       '.message-input-container textarea.message-input-textarea'
     ],
     chatglm: [
+      // chatglm.cn 新版（AgentMore）：Element Plus 的 textarea
+      '.chat-sender textarea.el-textarea__inner',
+      'textarea.el-textarea__inner',
+      '.input-box-wrapper textarea',
+      // 旧版兜底
       '#search-input-box textarea.scroll-display-none',
       'textarea.scroll-display-none',
       '#search-input-box [contenteditable="true"]',
-      '#input-box textarea',
-      '#search-input-box textarea'
+      '#input-box textarea'
     ],
     'zai-global': [
       'textarea[placeholder="How can I help you today?"]',
@@ -182,13 +186,14 @@
       '.ql-editor[contenteditable="true"][data-placeholder]'
     ],
     yiyan: [
+      // wenxin.baidu.com 实测：textarea#chat-textarea.ci-textarea
+      'textarea#chat-textarea',
+      '.ci-container textarea',
+      '.ci-wrapper textarea',
+      // yiyan.baidu.com 旧版兜底
       '#chat-input[contenteditable="true"]',
       '#chat-input',
-      '.chat-input-editor[contenteditable="true"]',
       '[contenteditable="true"][data-placeholder]',
-      'div[contenteditable="true"][role="textbox"]',
-      'textarea[placeholder*="请输入"]',
-      'div[contenteditable="true"]',
       'textarea'
     ],
     'minimax-agent': [
@@ -261,7 +266,11 @@
     chatglm: ['input.el-upload__input[type="file"]'],
     'zai-global': ['input[type="file"][multiple][accept*=".png"]'],
     yuanbao: ['input[type="file"][multiple][accept*="image"]'],
-    yiyan: ['input[type="file"][accept*="image"]', 'input[type="file"]'],
+    yiyan: [
+      '.ci-container input[type="file"]',
+      'input[type="file"][accept*="image"]',
+      'input[type="file"]'
+    ],
     google: ['input[type="file"]']
   };
 
@@ -357,11 +366,13 @@
       '.message-input-container .chat-prompt-send-button button.send-button'
     ],
     chatglm: [
+      // 新版：button.send-button，空输入时挂 send-button--disabled
+      'button.send-button:not(.send-button--disabled)',
+      'button[aria-label="发送"]:not(.send-button--disabled)',
+      'button.send-button',
+      // 旧版兜底
       '#search-input-box .enter.is-main-chat .enter-icon-container',
-      '#search-input-box .enter.is-main-chat',
-      '.enter.is-main-chat',
-      '#search-input-box .enter',
-      'button[class*="send"]'
+      '.enter.is-main-chat'
     ],
     'zai-global': [
       'button.sendMessageButton'
@@ -371,12 +382,14 @@
       '#yuanbao-send-btn'
     ],
     yiyan: [
+      // wenxin.baidu.com 实测：发送控件是 span，不是 button
+      'span.ci-submit-button',
+      'img#ci-submit-button-ai',
+      '#ci-area [class*="submit"]',
+      // 旧版兜底
       'button#sendBtn',
       'button[aria-label="发送"]',
-      'button[aria-label="Send"]',
-      '[class*="send-btn"]:not([class*="disabled"])',
-      'button[class*="send"]:not([class*="disabled"])',
-      'button[type="submit"]'
+      '[class*="send-btn"]:not([class*="disabled"])'
     ],
     'minimax-agent': [
       'button[aria-label="Send"]',
@@ -478,10 +491,9 @@
       '[role="button"][aria-label="新建對話"]'
     ],
     yiyan: [
+      'a[href="/"]',
       '[class*="new-chat"]',
-      'button[aria-label*="新建"]',
-      'a[href="/chat"]',
-      'a[href="/"]'
+      'button[aria-label*="新建"]'
     ],
     'minimax-agent': [
       'a[href="/"]',
@@ -520,7 +532,7 @@
     'zai-global': 'https://chat.z.ai/',
     // Keep this in sync with YUANBAO_DEFAULT_URL in modules/providers.js.
     yuanbao: 'https://yuanbao.tencent.com/chat/naQivTmsDa',
-    yiyan: 'https://yiyan.baidu.com/',
+    yiyan: 'https://wenxin.baidu.com/',
     'minimax-agent': 'https://agent.minimax.io/',
     'hailuo-cn': 'https://hailuoai.com/',
     'hailuo-global': 'https://hailuoai.video/',
@@ -575,7 +587,12 @@
       return 'zai-global';
     } else if (hostname === 'yuanbao.tencent.com') {
       return 'yuanbao';
-    } else if (hostname === 'yiyan.baidu.com' || hostname.endsWith('.yiyan.baidu.com')) {
+    } else if (
+      hostname === 'yiyan.baidu.com' ||
+      hostname.endsWith('.yiyan.baidu.com') ||
+      hostname === 'wenxin.baidu.com' ||
+      hostname.endsWith('.wenxin.baidu.com')
+    ) {
       return 'yiyan';
     } else if (
       hostname === 'agent.minimax.io' ||
@@ -1247,6 +1264,12 @@
 
     if (provider === 'yuanbao') {
       return window.ButtonFinderUtils?.isYuanbaoSendControl(element) === true;
+    }
+
+    if (provider === 'chatglm') {
+      // 新版的禁用只体现在 class 上，button.disabled 恒为 false
+      return !element.classList.contains('send-button--disabled') &&
+        !element.classList.contains('disabled');
     }
 
     return !element.classList.contains('disabled');

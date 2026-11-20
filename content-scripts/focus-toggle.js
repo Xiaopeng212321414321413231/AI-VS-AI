@@ -47,9 +47,10 @@ function findProviderInput() {
            document.querySelector('textarea.ds-scroll-area');
   }
 
-  // ChatGLM
+  // ChatGLM（新版 AgentMore 用 Element Plus textarea）
   if (host === 'chatglm.cn') {
-    return document.querySelector('#search-input-box textarea.scroll-display-none');
+    return document.querySelector('textarea.el-textarea__inner') ||
+           document.querySelector('#search-input-box textarea.scroll-display-none');
   }
 
   // Z.ai Global
@@ -64,9 +65,10 @@ function findProviderInput() {
            document.querySelector('.ql-editor[contenteditable="true"]');
   }
 
-  // 文心一言
-  if (host === 'yiyan.baidu.com') {
-    return document.querySelector('#chat-input[contenteditable="true"]') ||
+  // 文心一言（yiyan.baidu.com → wenxin.baidu.com）
+  if (host === 'yiyan.baidu.com' || host === 'wenxin.baidu.com') {
+    return document.querySelector('textarea#chat-textarea') ||
+           document.querySelector('#chat-input[contenteditable="true"]') ||
            document.querySelector('div[contenteditable="true"][role="textbox"]') ||
            document.querySelector('div[contenteditable="true"]') ||
            document.querySelector('textarea');

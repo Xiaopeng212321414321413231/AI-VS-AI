@@ -82,13 +82,18 @@ export const OPTIONAL_PROVIDER_CONFIGS = Object.freeze({
     ))
   }),
   yiyan: Object.freeze({
-    origins: Object.freeze(['https://yiyan.baidu.com/*']),
+    // yiyan.baidu.com 会 301 到 wenxin.baidu.com，两个域都要覆盖：
+    // 内容脚本要在重定向后的页面上继续生效，嵌 frame 也要去头。
+    origins: Object.freeze(['https://yiyan.baidu.com/*', 'https://wenxin.baidu.com/*']),
     contentScript: Object.freeze(createContentScript(
       'yiyan-scripts',
-      ['https://yiyan.baidu.com/*'],
+      ['https://yiyan.baidu.com/*', 'https://wenxin.baidu.com/*'],
       'content-scripts/enter-behavior-yiyan.js'
     )),
-    frameRule: Object.freeze(createFrameRule(1008, 'yiyan.baidu.com'))
+    frameRules: Object.freeze([
+      Object.freeze(createFrameRule(1008, 'yiyan.baidu.com')),
+      Object.freeze(createFrameRule(1009, 'wenxin.baidu.com'))
+    ])
   }),
   'minimax-agent': Object.freeze({
     // MiniMax Agent redirects by region (.io / .cn) and serves the chat UI from
@@ -133,22 +138,15 @@ export function getOptionalProviderConfig(providerId) {
   return OPTIONAL_PROVIDER_CONFIGS[providerId] || null;
 }
 
-export async function hasOptionalProviderPermission(providerId) {
-  const config = getOptionalProviderConfig(providerId);
-  if (!config) {
-    return true;
-  }
-
-  return chrome.permissions.contains({ origins: [...config.origins] });
+// 本版本把所有模型的主机权限都写进了 manifest 的 host_permissions，
+// 安装/加载时自动授予，不再需要用户手动点「授权」。
+// 这两个函数保留签名以兼容调用方，恒返回 true。
+export async function hasOptionalProviderPermission() {
+  return true;
 }
 
-export function requestOptionalProviderPermission(providerId) {
-  const config = getOptionalProviderConfig(providerId);
-  if (!config) {
-    return Promise.resolve(true);
-  }
-
-  return chrome.permissions.request({ origins: [...config.origins] });
+export function requestOptionalProviderPermission() {
+  return Promise.resolve(true);
 }
 
 export async function filterProvidersWithGrantedAccess(providerIds) {
@@ -230,12 +228,12 @@ async function syncFrameRules(allConfigs, desiredConfigs) {
     return;
   }
 
-  const allFrameRules = allConfigs
-    .map(({ frameRule }) => frameRule)
+  const flattenFrameRules = (configs) => configs
+    .flatMap(({ frameRule, frameRules }) =>
+      frameRules ? frameRules : (frameRule ? [frameRule] : []))
     .filter(Boolean);
-  const desiredFrameRules = desiredConfigs
-    .map(({ frameRule }) => frameRule)
-    .filter(Boolean);
+  const allFrameRules = flattenFrameRules(allConfigs);
+  const desiredFrameRules = flattenFrameRules(desiredConfigs);
   const managedRuleIds = new Set(allFrameRules.map(({ id }) => id));
   const desiredRuleIds = new Set(desiredFrameRules.map(({ id }) => id));
   const dynamicRules = await chrome.declarativeNetRequest.getDynamicRules();

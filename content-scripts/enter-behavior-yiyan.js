@@ -2,10 +2,11 @@
 // Covers yiyan.baidu.com (百度文心一言网页版).
 // Depends on enter-behavior-utils.js and button-finder-utils.js.
 
+// wenxin.baidu.com 实测：输入框 textarea#chat-textarea，发送控件是 span
 const YIYAN_INPUT_SELECTORS = [
+  'textarea#chat-textarea',
+  '.ci-container textarea',
   '#chat-input[contenteditable="true"]',
-  'div[contenteditable="true"][role="textbox"]',
-  '.chat-input-editor[contenteditable="true"]',
   'div[contenteditable="true"]',
   'textarea'
 ];
@@ -13,23 +14,19 @@ const YIYAN_INPUT_SELECTORS = [
 const YIYAN_SEND_BUTTON_SELECTORS = [
   {
     type: 'css',
+    value: 'span.ci-submit-button'
+  },
+  {
+    type: 'css',
+    value: 'img#ci-submit-button-ai'
+  },
+  {
+    type: 'css',
     value: 'button#sendBtn'
   },
   {
     type: 'css',
     value: 'button[aria-label="发送"]'
-  },
-  {
-    type: 'css',
-    value: 'button[aria-label="Send"]'
-  },
-  {
-    type: 'css',
-    value: '[class*="send-btn"]:not([class*="disabled"])'
-  },
-  {
-    type: 'css',
-    value: 'button[type="submit"]'
   }
 ];
 

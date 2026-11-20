@@ -4,18 +4,22 @@
 const CHATGLM_SEND_BUTTON_SELECTORS = [
   {
     type: 'css',
+    value: 'button.send-button:not(.send-button--disabled)'
+  },
+  {
+    type: 'css',
     value: '#search-input-box .enter.is-main-chat .enter-icon-container'
   }
 ];
 
 function isChatGLMInput(element) {
-  return Boolean(
-    element &&
-    element.tagName === 'TEXTAREA' &&
-    element.offsetParent !== null &&
-    element.classList.contains('scroll-display-none') &&
-    element.closest('#search-input-box')
-  );
+  if (!element || element.tagName !== 'TEXTAREA' || element.offsetParent === null) {
+    return false;
+  }
+
+  // 新版（AgentMore）：Element Plus textarea；旧版：#search-input-box
+  return element.classList.contains('el-textarea__inner') ||
+    element.closest('#search-input-box') !== null;
 }
 
 function insertChatGLMNewline(textarea) {

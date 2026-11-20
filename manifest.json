@@ -27,9 +27,7 @@
     "*://www.doubao.com/*",
     "*://doubao.com/*",
     "*://www.google.com/*",
-    "*://google.com/*"
-  ],
-  "optional_host_permissions": [
+    "*://google.com/*",
     "https://www.qianwen.com/*",
     "https://chat.qwen.ai/*",
     "https://auth.qwen.ai/*",
@@ -43,7 +41,8 @@
     "https://www.hailuoai.com/*",
     "https://hailuoai.video/*",
     "https://www.hailuoai.video/*",
-    "https://yiyan.baidu.com/*"
+    "https://yiyan.baidu.com/*",
+    "https://wenxin.baidu.com/*"
   ],
   "background": {
     "service_worker": "background/service-worker.js",
